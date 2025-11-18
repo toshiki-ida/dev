@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(reg query HKCUSoftwareNDI /s 2)",
+      "Bash(nul)",
+      "Bash(findstr:*)",
+      "Bash(powershell \"Start-Process ''https://downloads.ndi.tv/Tools/NDI%205%20Tools.exe'' -Wait\" 2)",
+      "Bash(powershell:*)",
+      "Bash(git clone:*)",
+      "Bash(curl:*)",
+      "Bash(tee:*)",
+      "Bash(python app_complete.py:*)",
+      "Bash(timeout /t 5 /nobreak)",
+      "Bash(python test_preview.py:*)",
+      "Bash(python:*)",
+      "Bash(dir:*)",
+      "Bash(mkdir:*)",
+      "Bash(pip install:*)",
+      "Bash(pyinstaller:*)",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(npm init:*)",
+      "Bash(npm pkg:*)",
+      "Bash(npm pkg set:*)",
+      "Bash(npm run dev)",
+      "Bash(timeout /t 3 /nobreak)",
+      "Bash(quick-start.bat)",
+      "Bash(if exist \"node_modules\\.vite\" rmdir /s /q node_modules.vite)",
+      "Bash(git init:*)",
+      "Bash(git config:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "watch_directory": "C:/Users/ida/Desktop/vmix test",
+  "vmix_host": "localhost",
+  "vmix_port": 8088,
+  "presets": [
+    {
+      "name": "フルスクリーン",
+      "x": 1379,
+      "y": 0,
+      "width": 1920,
+      "height": 1080,
+      "zoom": 1.0026315789473685,
+      "panX": 0.0,
+      "panY": 0.0,
+      "cropX1": 0.0,
+      "cropY1": 0.0,
+      "cropX2": 1.0,
+      "cropY2": 1.0
+    },
+    {
+      "name": "左半分",
+      "x": 0,
+      "y": 0,
+      "width": 960,
+      "height": 1080,
+      "zoom": 0.6759649122807018,
+      "panX": -0.7228070175438597,
+      "panY": 0.0,
+      "cropX1": 0.0,
+      "cropY1": 0.0,
+      "cropX2": 1.0,
+      "cropY2": 1.0
+    },
+    {
+      "name": "右半分",
+      "x": 960,
+      "y": 0,
+      "width": 960,
+      "height": 1080,
+      "zoom": 1.0,
+      "panX": 0.0,
+      "panY": 0.0,
+      "cropX1": 0.0,
+      "cropY1": 0.0,
+      "cropX2": 1.0,
+      "cropY2": 1.0
+    },
+    {
+      "name": "右下1/4",
+      "x": 960,
+      "y": 540,
+      "width": 960,
+      "height": 540,
+      "zoom": 0.5728070175438597,
+      "panX": 0.7859649122807015,
+      "panY": -0.42105263157894735,
+      "cropX1": 0.0,
+      "cropY1": 0.0,
+      "cropX2": 1.0,
+      "cropY2": 1.0
+    },
+    {
+      "name": "左下1/4",
+      "x": 0,
+      "y": 540,
+      "width": 960,
+      "height": 540,
+      "zoom": 1.0,
+      "panX": 0.0,
+      "panY": 0.0,
+      "cropX1": 0.0,
+      "cropY1": 0.0,
+      "cropX2": 1.0,
+      "cropY2": 1.0
+    },
+    {
+      "name": "中央1/2",
+      "x": 480,
+      "y": 270,
+      "width": 960,
+      "height": 540,
+      "zoom": 1.0,
+      "panX": 0.0,
+      "panY": 0.0,
+      "cropX1": 0.0,
+      "cropY1": 0.0,
+      "cropX2": 1.0,
+      "cropY2": 1.0
+    }
+  ],
+  "auto_add_to_vmix": true,
+  "window_geometry": "800x945+182+182"
+}

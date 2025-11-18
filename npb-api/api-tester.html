@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPB API Tester</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 0;
+            min-height: calc(100vh - 200px);
+        }
+
+        .sidebar {
+            background: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+            overflow-y: auto;
+            max-height: calc(100vh - 200px);
+        }
+
+        .auth-section {
+            padding: 20px;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        .auth-section h3 {
+            margin-bottom: 15px;
+            color: #495057;
+            font-size: 1.1em;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #495057;
+            font-weight: 500;
+            font-size: 0.9em;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 0.95em;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.95em;
+            font-weight: 600;
+            transition: all 0.3s;
+            width: 100%;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            margin-top: 10px;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(17, 153, 142, 0.4);
+        }
+
+        .endpoints-section {
+            padding: 20px;
+        }
+
+        .endpoints-section h3 {
+            margin-bottom: 15px;
+            color: #495057;
+            font-size: 1.1em;
+        }
+
+        .endpoint-category {
+            margin-bottom: 10px;
+        }
+
+        .endpoint-category-title {
+            background: #e9ecef;
+            padding: 10px;
+            cursor: pointer;
+            border-radius: 6px;
+            font-weight: 600;
+            color: #495057;
+            transition: background 0.2s;
+        }
+
+        .endpoint-category-title:hover {
+            background: #dee2e6;
+        }
+
+        .endpoint-list {
+            display: none;
+            padding: 10px 0;
+        }
+
+        .endpoint-list.active {
+            display: block;
+        }
+
+        .endpoint-item {
+            padding: 8px 12px;
+            margin: 5px 0;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 0.9em;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .endpoint-item:hover {
+            background: #e9ecef;
+            border-left-color: #667eea;
+        }
+
+        .endpoint-item.selected {
+            background: #667eea;
+            color: white;
+            border-left-color: #764ba2;
+        }
+
+        .method-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: 700;
+            margin-right: 8px;
+        }
+
+        .method-get {
+            background: #28a745;
+            color: white;
+        }
+
+        .method-post {
+            background: #007bff;
+            color: white;
+        }
+
+        .method-put {
+            background: #ffc107;
+            color: #000;
+        }
+
+        .method-delete {
+            background: #dc3545;
+            color: white;
+        }
+
+        .content-area {
+            padding: 30px;
+            overflow-y: auto;
+            max-height: calc(100vh - 200px);
+        }
+
+        .request-section {
+            margin-bottom: 30px;
+        }
+
+        .request-section h3 {
+            margin-bottom: 20px;
+            color: #495057;
+            font-size: 1.3em;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .endpoint-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .endpoint-info h4 {
+            color: #495057;
+            margin-bottom: 10px;
+        }
+
+        .endpoint-url {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            color: #667eea;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .params-section {
+            margin-top: 20px;
+        }
+
+        .param-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+        }
+
+        .param-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .param-name {
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .param-required {
+            background: #dc3545;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+        }
+
+        .param-optional {
+            background: #6c757d;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+        }
+
+        .response-section {
+            margin-top: 30px;
+        }
+
+        .response-section h3 {
+            margin-bottom: 20px;
+            color: #495057;
+            font-size: 1.3em;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #38ef7d;
+        }
+
+        .response-status {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .response-body {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .response-body pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .welcome-message {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+        .welcome-message h2 {
+            font-size: 2em;
+            margin-bottom: 20px;
+            color: #495057;
+        }
+
+        .welcome-message p {
+            font-size: 1.1em;
+            line-height: 1.6;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .auth-status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .auth-status.authenticated {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .auth-status.not-authenticated {
+            background: #fff3cd;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>NPB API Tester</h1>
+            <p>日本プロ野球統計API テストツール</p>
+        </div>
+
+        <div class="main-content">
+            <div class="sidebar">
+                <div class="auth-section">
+                    <h3>認証設定</h3>
+
+                    <div class="form-group">
+                        <label for="authType">認証タイプ</label>
+                        <select id="authType">
+                            <option value="none">なし</option>
+                            <option value="basic">Basic Auth</option>
+                            <option value="bearer">Bearer Token</option>
+                        </select>
+                    </div>
+
+                    <div id="basicAuthFields" style="display: none;">
+                        <div class="form-group">
+                            <label for="username">ユーザー名</label>
+                            <input type="text" id="username" placeholder="ユーザー名を入力">
+                        </div>
+                        <div class="form-group">
+                            <label for="password">パスワード</label>
+                            <input type="password" id="password" placeholder="パスワードを入力">
+                        </div>
+                    </div>
+
+                    <div id="bearerAuthFields" style="display: none;">
+                        <div class="form-group">
+                            <label for="bearerToken">Bearer Token</label>
+                            <input type="text" id="bearerToken" placeholder="トークンを入力">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="baseUrl">ベースURL</label>
+                        <select id="baseUrl">
+                            <option value="https://stats.npb.jp/">Production (https://stats.npb.jp/)</option>
+                            <option value="http://localhost:8080">Local (http://localhost:8080)</option>
+                        </select>
+                    </div>
+
+                    <button class="btn btn-primary" onclick="saveAuthSettings()">認証設定を保存</button>
+                    <button class="btn btn-success" onclick="testAuthentication()">認証テスト</button>
+
+                    <div id="authStatus" class="auth-status not-authenticated">
+                        未認証
+                    </div>
+                </div>
+
+                <div class="endpoints-section">
+                    <h3>エンドポイント</h3>
+                    <div id="endpointsList">
+                        <!-- エンドポイントリストをJavaScriptで動的に生成 -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-area">
+                <div id="welcomeMessage" class="welcome-message">
+                    <h2>ようこそ NPB API Tester へ</h2>
+                    <p>左側から認証情報を設定し、テストしたいエンドポイントを選択してください。</p>
+                    <p>このツールでは、NPB Stats APIのさまざまなエンドポイントを簡単にテストできます。</p>
+                </div>
+
+                <div id="requestSection" class="request-section" style="display: none;">
+                    <!-- リクエスト詳細をJavaScriptで動的に生成 -->
+                </div>
+
+                <div id="loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>リクエスト送信中...</p>
+                </div>
+
+                <div id="responseSection" class="response-section" style="display: none;">
+                    <!-- レスポンス詳細をJavaScriptで動的に生成 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // グローバル変数
+        let authSettings = {
+            type: 'none',
+            username: '',
+            password: '',
+            bearerToken: '',
+            baseUrl: 'https://stats.npb.jp/'
+        };
+
+        let currentEndpoint = null;
+
+        // APIエンドポイント定義（YAMLから抽出した主要なエンドポイント）
+        const endpoints = {
+            'Authentication': [
+                {
+                    path: '/api/dmp/v1/authentication/okta/token',
+                    method: 'POST',
+                    summary: '認証情報を取得する',
+                    description: 'このエンドポイントを利用して認証情報を取得することができます。',
+                    parameters: []
+                },
+                {
+                    path: '/api/dmp/v1/authentication/okta/token/refresh',
+                    method: 'POST',
+                    summary: '認証情報を更新する',
+                    description: 'このエンドポイントを利用して認証情報を更新することができます。',
+                    parameters: [
+                        { name: 'refreshToken', in: 'query', description: '更新するためのリフレッシュトークン', required: true, type: 'string' }
+                    ]
+                }
+            ],
+            'Teams': [
+                {
+                    path: '/api/dmp/v1/teams/{teamId}/alumni',
+                    method: 'GET',
+                    summary: 'チームの全ての OB を表示する',
+                    description: 'チームの全ての OB を表示する。',
+                    parameters: [
+                        { name: 'teamId', in: 'path', description: 'ユニークなチーム ID。 例: 141, 147, 等', required: true, type: 'integer' },
+                        { name: 'season', in: 'query', description: 'プレーがあったシーズン', required: true, type: 'string' },
+                        { name: 'group', in: 'query', description: '返ってくるスタッツのカテゴリー', required: false, type: 'string' }
+                    ]
+                }
+            ],
+            'Misc': [
+                {
+                    path: '/api/dmp/v1/jobTypes',
+                    method: 'GET',
+                    summary: 'すべてのジョブタイプを表示する',
+                    description: 'すべてのジョブタイプを表示する',
+                    parameters: [
+                        { name: 'fields', in: 'query', description: 'カンマ区切りの、取得したいフィールドリスト', required: false, type: 'string' }
+                    ]
+                },
+                {
+                    path: '/api/dmp/v1/gameStatus',
+                    method: 'GET',
+                    summary: 'すべてのステータスタイプを表示する',
+                    description: 'すべてのステータスタイプを表示する',
+                    parameters: []
+                }
+            ]
+        };
+
+        // 初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            renderEndpoints();
+            setupAuthTypeChange();
+            loadSavedSettings();
+        });
+
+        // 認証タイプ変更時の処理
+        function setupAuthTypeChange() {
+            document.getElementById('authType').addEventListener('change', function(e) {
+                const basicAuthFields = document.getElementById('basicAuthFields');
+                const bearerAuthFields = document.getElementById('bearerAuthFields');
+
+                basicAuthFields.style.display = 'none';
+                bearerAuthFields.style.display = 'none';
+
+                if (e.target.value === 'basic') {
+                    basicAuthFields.style.display = 'block';
+                } else if (e.target.value === 'bearer') {
+                    bearerAuthFields.style.display = 'block';
+                }
+            });
+        }
+
+        // 保存された設定を読み込む
+        function loadSavedSettings() {
+            const saved = localStorage.getItem('npb-api-auth');
+            if (saved) {
+                authSettings = JSON.parse(saved);
+                document.getElementById('authType').value = authSettings.type;
+                document.getElementById('username').value = authSettings.username;
+                document.getElementById('password').value = authSettings.password;
+                document.getElementById('bearerToken').value = authSettings.bearerToken;
+                document.getElementById('baseUrl').value = authSettings.baseUrl;
+
+                // トリガー変更イベント
+                document.getElementById('authType').dispatchEvent(new Event('change'));
+
+                if (authSettings.type !== 'none') {
+                    document.getElementById('authStatus').textContent = '認証設定済み';
+                    document.getElementById('authStatus').className = 'auth-status authenticated';
+                }
+            }
+        }
+
+        // 認証設定を保存
+        function saveAuthSettings() {
+            authSettings = {
+                type: document.getElementById('authType').value,
+                username: document.getElementById('username').value,
+                password: document.getElementById('password').value,
+                bearerToken: document.getElementById('bearerToken').value,
+                baseUrl: document.getElementById('baseUrl').value
+            };
+
+            localStorage.setItem('npb-api-auth', JSON.stringify(authSettings));
+
+            document.getElementById('authStatus').textContent = '認証設定保存済み';
+            document.getElementById('authStatus').className = 'auth-status authenticated';
+
+            alert('認証設定を保存しました');
+        }
+
+        // 認証テスト
+        async function testAuthentication() {
+            const endpoint = endpoints['Authentication'][0];
+            currentEndpoint = endpoint;
+
+            try {
+                const response = await sendRequest(endpoint, {});
+                showResponse(response);
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        // エンドポイントリストをレンダリング
+        function renderEndpoints() {
+            const container = document.getElementById('endpointsList');
+            container.innerHTML = '';
+
+            for (const [category, items] of Object.entries(endpoints)) {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'endpoint-category';
+
+                const titleDiv = document.createElement('div');
+                titleDiv.className = 'endpoint-category-title';
+                titleDiv.textContent = category;
+                titleDiv.onclick = () => {
+                    listDiv.classList.toggle('active');
+                };
+
+                const listDiv = document.createElement('div');
+                listDiv.className = 'endpoint-list';
+
+                items.forEach(endpoint => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'endpoint-item';
+                    itemDiv.innerHTML = `
+                        <span class="method-badge method-${endpoint.method.toLowerCase()}">${endpoint.method}</span>
+                        <span>${endpoint.summary}</span>
+                    `;
+                    itemDiv.onclick = () => selectEndpoint(endpoint, itemDiv);
+                    listDiv.appendChild(itemDiv);
+                });
+
+                categoryDiv.appendChild(titleDiv);
+                categoryDiv.appendChild(listDiv);
+                container.appendChild(categoryDiv);
+            }
+        }
+
+        // エンドポイント選択
+        function selectEndpoint(endpoint, element) {
+            // 選択状態の更新
+            document.querySelectorAll('.endpoint-item').forEach(el => {
+                el.classList.remove('selected');
+            });
+            element.classList.add('selected');
+
+            currentEndpoint = endpoint;
+
+            // ウェルカムメッセージを非表示
+            document.getElementById('welcomeMessage').style.display = 'none';
+            document.getElementById('responseSection').style.display = 'none';
+
+            // リクエストセクションを表示
+            renderRequestSection(endpoint);
+        }
+
+        // リクエストセクションをレンダリング
+        function renderRequestSection(endpoint) {
+            const section = document.getElementById('requestSection');
+            section.style.display = 'block';
+
+            let paramsHtml = '';
+            if (endpoint.parameters && endpoint.parameters.length > 0) {
+                paramsHtml = '<div class="params-section"><h4>パラメータ</h4>';
+                endpoint.parameters.forEach(param => {
+                    const paramType = param.in === 'path' ? 'パス' : 'クエリ';
+                    paramsHtml += `
+                        <div class="param-item">
+                            <div class="param-header">
+                                <span class="param-name">${param.name} (${paramType})</span>
+                                <span class="param-${param.required ? 'required' : 'optional'}">
+                                    ${param.required ? '必須' : '任意'}
+                                </span>
+                            </div>
+                            <p style="color: #6c757d; font-size: 0.9em; margin-bottom: 8px;">${param.description}</p>
+                            <input type="text"
+                                   id="param-${param.name}"
+                                   placeholder="${param.name}を入力"
+                                   style="width: 100%; padding: 8px; border: 1px solid #ced4da; border-radius: 4px;">
+                        </div>
+                    `;
+                });
+                paramsHtml += '</div>';
+            }
+
+            section.innerHTML = `
+                <h3>リクエスト設定</h3>
+                <div class="endpoint-info">
+                    <h4>${endpoint.summary}</h4>
+                    <p style="color: #6c757d; margin: 10px 0;">${endpoint.description}</p>
+                    <div class="endpoint-url">
+                        <span class="method-badge method-${endpoint.method.toLowerCase()}">${endpoint.method}</span>
+                        ${endpoint.path}
+                    </div>
+                </div>
+                ${paramsHtml}
+                <button class="btn btn-success" onclick="executeRequest()">リクエスト送信</button>
+            `;
+        }
+
+        // リクエスト実行
+        async function executeRequest() {
+            if (!currentEndpoint) return;
+
+            // パラメータを収集
+            const params = {};
+            if (currentEndpoint.parameters) {
+                currentEndpoint.parameters.forEach(param => {
+                    const input = document.getElementById(`param-${param.name}`);
+                    if (input && input.value) {
+                        params[param.name] = input.value;
+                    }
+                });
+            }
+
+            // ローディング表示
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('responseSection').style.display = 'none';
+
+            try {
+                const response = await sendRequest(currentEndpoint, params);
+                showResponse(response);
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                document.getElementById('loading').classList.remove('active');
+            }
+        }
+
+        // リクエスト送信
+        async function sendRequest(endpoint, params) {
+            let url = authSettings.baseUrl + endpoint.path.replace(/^\//, '');
+
+            // パスパラメータを置換
+            for (const [key, value] of Object.entries(params)) {
+                url = url.replace(`{${key}}`, value);
+            }
+
+            // クエリパラメータを追加
+            const queryParams = new URLSearchParams();
+            endpoint.parameters?.forEach(param => {
+                if (param.in === 'query' && params[param.name]) {
+                    queryParams.append(param.name, params[param.name]);
+                }
+            });
+
+            if (queryParams.toString()) {
+                url += '?' + queryParams.toString();
+            }
+
+            // リクエストヘッダー
+            const headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            };
+
+            // 認証ヘッダーを追加
+            if (authSettings.type === 'basic' && authSettings.username && authSettings.password) {
+                const credentials = btoa(`${authSettings.username}:${authSettings.password}`);
+                headers['Authorization'] = `Basic ${credentials}`;
+            } else if (authSettings.type === 'bearer' && authSettings.bearerToken) {
+                headers['Authorization'] = `Bearer ${authSettings.bearerToken}`;
+            }
+
+            const options = {
+                method: endpoint.method,
+                headers: headers,
+                mode: 'cors'
+            };
+
+            const response = await fetch(url, options);
+            const data = await response.json();
+
+            return {
+                status: response.status,
+                statusText: response.statusText,
+                headers: Object.fromEntries(response.headers.entries()),
+                body: data,
+                url: url
+            };
+        }
+
+        // レスポンス表示
+        function showResponse(response) {
+            const section = document.getElementById('responseSection');
+            section.style.display = 'block';
+
+            const statusClass = response.status < 400 ? 'status-success' : 'status-error';
+
+            section.innerHTML = `
+                <h3>レスポンス</h3>
+                <div class="response-status ${statusClass}">
+                    Status: ${response.status} ${response.statusText}
+                </div>
+                <p style="color: #6c757d; margin-bottom: 10px; word-break: break-all;">
+                    <strong>URL:</strong> ${response.url}
+                </p>
+                <h4 style="margin-bottom: 10px; color: #495057;">レスポンスボディ:</h4>
+                <div class="response-body">
+                    <pre>${JSON.stringify(response.body, null, 2)}</pre>
+                </div>
+            `;
+
+            section.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // エラー表示
+        function showError(message) {
+            const section = document.getElementById('responseSection');
+            section.style.display = 'block';
+
+            section.innerHTML = `
+                <h3>エラー</h3>
+                <div class="response-status status-error">
+                    エラーが発生しました
+                </div>
+                <div class="response-body">
+                    <pre>${message}</pre>
+                </div>
+            `;
+
+            section.scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>
