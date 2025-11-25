@@ -1,0 +1,23 @@
+# Build results
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Rider
+.idea/
+
+# TensorRT cache (large binary files)
+trt_cache/
+*.engine
+*.profile
+
+# Log files
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
