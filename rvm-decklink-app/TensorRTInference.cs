@@ -31,6 +31,10 @@ namespace RvmDecklink
 
         private bool _disposed;
 
+        // Pre-allocated buffers to reduce GC pressure
+        private float[]? _rgbBuffer;
+        private byte[]? _alphaOutputBuffer;
+
         public TensorRTInference(string modelPath, string? cacheDir = null)
         {
             _modelPath = modelPath;
@@ -232,7 +236,13 @@ namespace RvmDecklink
         /// </summary>
         private DenseTensor<float> PreprocessFrame(byte[] bgra)
         {
-            var rgb = new float[3 * _height * _width];
+            int rgbSize = 3 * _height * _width;
+
+            // Allocate buffer once
+            if (_rgbBuffer == null || _rgbBuffer.Length != rgbSize)
+            {
+                _rgbBuffer = new float[rgbSize];
+            }
 
             // Convert BGRA to RGB and normalize to [0-1]
             // Layout: NCHW (batch, channel, height, width)
@@ -242,12 +252,12 @@ namespace RvmDecklink
             {
                 int bgraIdx = i * 4;
                 // BGRA -> RGB
-                rgb[i] = bgra[bgraIdx + 2] / 255f;                    // R channel
-                rgb[pixelCount + i] = bgra[bgraIdx + 1] / 255f;      // G channel
-                rgb[2 * pixelCount + i] = bgra[bgraIdx] / 255f;      // B channel
+                _rgbBuffer[i] = bgra[bgraIdx + 2] / 255f;                    // R channel
+                _rgbBuffer[pixelCount + i] = bgra[bgraIdx + 1] / 255f;      // G channel
+                _rgbBuffer[2 * pixelCount + i] = bgra[bgraIdx] / 255f;      // B channel
             }
 
-            return new DenseTensor<float>(rgb, new[] { 1, 3, _height, _width });
+            return new DenseTensor<float>(_rgbBuffer, new[] { 1, 3, _height, _width });
         }
 
         /// <summary>
@@ -278,7 +288,14 @@ namespace RvmDecklink
         /// </summary>
         public byte[] CreateAlphaOnlyOutput(float[] alpha)
         {
-            var output = new byte[_width * _height * 4];
+            int outputSize = _width * _height * 4;
+
+            // Allocate buffer once
+            if (_alphaOutputBuffer == null || _alphaOutputBuffer.Length != outputSize)
+            {
+                _alphaOutputBuffer = new byte[outputSize];
+            }
+
             int pixelCount = _width * _height;
 
             for (int i = 0; i < pixelCount; i++)
@@ -288,13 +305,13 @@ namespace RvmDecklink
 
                 // White silhouette on black background (for SDI output)
                 // Alpha value determines grayscale: person=white, background=black
-                output[idx] = a;     // B = alpha (white where person is)
-                output[idx + 1] = a; // G = alpha
-                output[idx + 2] = a; // R = alpha
-                output[idx + 3] = 255; // A = full opacity
+                _alphaOutputBuffer[idx] = a;     // B = alpha (white where person is)
+                _alphaOutputBuffer[idx + 1] = a; // G = alpha
+                _alphaOutputBuffer[idx + 2] = a; // R = alpha
+                _alphaOutputBuffer[idx + 3] = 255; // A = full opacity
             }
 
-            return output;
+            return _alphaOutputBuffer;
         }
 
         public void Dispose()

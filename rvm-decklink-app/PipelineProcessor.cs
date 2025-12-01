@@ -19,8 +19,8 @@ namespace RvmDecklink
         private readonly bool _enableOutput;
 
         // Pipeline queues
-        private readonly BlockingCollection<FrameData> _inferenceQueue;
-        private readonly BlockingCollection<ProcessedFrame> _postprocessQueue;
+        private BlockingCollection<FrameData> _inferenceQueue;
+        private BlockingCollection<ProcessedFrame> _postprocessQueue;
 
         // Event for processed frames (for UI preview)
         public event Action<byte[]>? OnProcessedFrame;
@@ -41,6 +41,9 @@ namespace RvmDecklink
 
         private bool _disposed;
 
+        // Pre-allocated buffers to reduce GC pressure
+        private byte[]? _bgraBuffer;
+
         public PipelineProcessor(TensorRTInference inference, DeckLinkWrapper deckLink, bool enableOutput = true)
         {
             _inference = inference;
@@ -58,6 +61,18 @@ namespace RvmDecklink
         public void Start()
         {
             if (_running) return;
+
+            // Recreate queues if they were completed
+            if (_inferenceQueue.IsAddingCompleted)
+            {
+                _inferenceQueue.Dispose();
+                _inferenceQueue = new BlockingCollection<FrameData>(2);
+            }
+            if (_postprocessQueue.IsAddingCompleted)
+            {
+                _postprocessQueue.Dispose();
+                _postprocessQueue = new BlockingCollection<ProcessedFrame>(2);
+            }
 
             _cts = new CancellationTokenSource();
             _running = true;
@@ -105,27 +120,48 @@ namespace RvmDecklink
         /// </summary>
         public bool SubmitFrame(byte[] yuvData)
         {
-            if (!_running) return false;
+            if (!_running || _inferenceQueue.IsAddingCompleted) return false;
 
-            // Convert YUV422 to BGRA for inference
-            byte[] bgraData = ConvertUyvyToBgra(yuvData, 1920, 1080);
+            // Allocate BGRA buffer once
+            const int width = 1920;
+            const int height = 1080;
+            int bgraSize = width * height * 4;
+
+            if (_bgraBuffer == null || _bgraBuffer.Length != bgraSize)
+            {
+                _bgraBuffer = new byte[bgraSize];
+            }
+
+            // Convert YUV422 to BGRA for inference (reuse buffer)
+            ConvertUyvyToBgraInPlace(yuvData, _bgraBuffer, width, height);
+
+            // Create frame with copy of data (since we reuse buffer)
+            var frameData = new byte[bgraSize];
+            Buffer.BlockCopy(_bgraBuffer, 0, frameData, 0, bgraSize);
 
             var frame = new FrameData
             {
-                Data = bgraData,
+                Data = frameData,
                 Timestamp = Stopwatch.GetTimestamp()
             };
 
             // Try to add without blocking (drop frame if full)
-            return _inferenceQueue.TryAdd(frame);
+            try
+            {
+                return _inferenceQueue.TryAdd(frame);
+            }
+            catch (InvalidOperationException)
+            {
+                // Collection was completed between check and add
+                return false;
+            }
         }
 
         /// <summary>
-        /// Convert UYVY (YUV422) to BGRA
+        /// Convert UYVY (YUV422) to BGRA in-place (no allocation)
         /// </summary>
-        private static byte[] ConvertUyvyToBgra(byte[] uyvy, int width, int height)
+        private static void ConvertUyvyToBgraInPlace(byte[] uyvy, byte[] bgra, int width, int height)
         {
-            var bgra = new byte[width * height * 4];
             int uyvyIndex = 0;
             int bgraIndex = 0;
 
@@ -141,8 +177,6 @@ namespace RvmDecklink
                 YuvToBgra(y1, u, v, bgra, bgraIndex);
                 bgraIndex += 4;
             }
-
-            return bgra;
         }
 
         private static void YuvToBgra(byte y, byte u, byte v, byte[] bgra, int index)
@@ -180,7 +214,7 @@ namespace RvmDecklink
                     sw.Stop();
                     Stats.InferenceTimeMs = sw.Elapsed.TotalMilliseconds;
 
-                    if (alpha != null)
+                    if (alpha != null && !_postprocessQueue.IsAddingCompleted)
                     {
                         var processed = new ProcessedFrame
                         {
@@ -190,7 +224,14 @@ namespace RvmDecklink
                         };
 
                         // Try to pass to next stage
-                        _postprocessQueue.TryAdd(processed);
+                        try
+                        {
+                            _postprocessQueue.TryAdd(processed);
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Collection was completed
+                        }
                     }
                 }
             }

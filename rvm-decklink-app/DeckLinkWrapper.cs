@@ -16,7 +16,6 @@ namespace RvmDecklink
         private IDeckLink? _deckLinkOutput;
         private IDeckLinkInput? _input;
         private IDeckLinkOutput? _output;
-        private IDeckLinkDiscovery? _discovery;
         private IDeckLinkVideoConversion? _videoConversion;
 
         // Dispatcher for COM threading (must access _output from main thread)
@@ -372,59 +371,34 @@ namespace RvmDecklink
             {
                 Logger.Log("[INFO] Stopping DeckLink output...");
 
-                // DispatcherTimer must be stopped on UI thread
-                // Use BeginInvoke (async) to avoid deadlock
-                if (_dispatcher != null && _outputTimer != null)
+                // 1. Stop timer FIRST
+                if (_outputTimer != null)
                 {
                     var timer = _outputTimer;
-                    _outputTimer = null; // Clear reference immediately
+                    _outputTimer = null;
 
-                    if (_dispatcher.CheckAccess())
+                    if (_dispatcher != null && _dispatcher.CheckAccess())
                     {
                         // Already on UI thread
                         timer.Stop();
                         timer.Tick -= OutputTimer_Tick;
-                        Logger.Log("[INFO] Output timer stopped (UI thread)");
                     }
                     else
                     {
-                        // Cross-thread: dispatch to UI thread (non-blocking)
-                        _dispatcher.BeginInvoke(new Action(() =>
+                        // Not on UI thread - just stop, don't wait
+                        try
                         {
-                            try
-                            {
-                                timer.Stop();
-                                timer.Tick -= OutputTimer_Tick;
-                                Logger.Log("[INFO] Output timer stopped (async dispatch)");
-                            }
-                            catch { }
-                        }));
+                            timer.Stop();
+                        }
+                        catch { }
                     }
-                }
-                else if (_outputTimer != null)
-                {
-                    _outputTimer.Stop();
-                    _outputTimer.Tick -= OutputTimer_Tick;
-                    _outputTimer = null;
                     Logger.Log("[INFO] Output timer stopped");
                 }
 
-                // DeckLink COM calls to actually stop the output
-                // Note: These calls can block, but we need to stop output before Dispose
+                // 2. DeckLink COM calls - must be in correct order
                 if (_output != null)
                 {
-                    try
-                    {
-                        // First clear callbacks to prevent further calls
-                        _output.SetScheduledFrameCompletionCallback(null);
-                        _output.SetAudioCallback(null);
-                        Logger.Log("[INFO] Callbacks cleared");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Log($"[WARNING] Clear callbacks failed: {ex.Message}");
-                    }
-
+                    // 2a. Stop playback first
                     try
                     {
                         _output.StopScheduledPlayback(0, out long actualStopTime, _timeScale);
@@ -435,19 +409,39 @@ namespace RvmDecklink
                         Logger.Log($"[WARNING] StopScheduledPlayback failed: {ex.Message}");
                     }
 
+                    // 2b. Clear callbacks
                     try
                     {
-                        _output.DisableVideoOutput();
-                        _output.DisableAudioOutput();
-                        Logger.Log("[INFO] Video/Audio output disabled");
+                        _output.SetScheduledFrameCompletionCallback(null);
+                        _output.SetAudioCallback(null);
+                        Logger.Log("[INFO] Callbacks cleared");
                     }
                     catch (Exception ex)
                     {
-                        Logger.Log($"[WARNING] Disable output failed: {ex.Message}");
+                        Logger.Log($"[WARNING] Clear callbacks failed: {ex.Message}");
+                    }
+
+                    // 2c. Disable outputs
+                    try
+                    {
+                        _output.DisableAudioOutput();
+                        Logger.Log("[INFO] Audio output disabled");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Log($"[WARNING] DisableAudioOutput failed: {ex.Message}");
+                    }
+
+                    try
+                    {
+                        _output.DisableVideoOutput();
+                        Logger.Log("[INFO] Video output disabled");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Log($"[WARNING] DisableVideoOutput failed: {ex.Message}");
                     }
                 }
-
-                Logger.Log("[INFO] DeckLink output stopped (IsOutputRunning=false, timer stopped)");
 
                 // Reset index for next StartOutput
                 _currentFrameIndex = 0;
@@ -461,25 +455,25 @@ namespace RvmDecklink
                 _completedFrameCount = 0;
                 _sendFrameCount = 0;
 
-                // Clear latest frame buffer (use TryEnter to avoid deadlock)
-                if (Monitor.TryEnter(_latestFrameLock, 100))
+                // Clear latest frame buffer
+                lock (_latestFrameLock)
                 {
-                    try
-                    {
-                        _latestFrame = null;
-                        _hasNewFrame = false;
-                    }
-                    finally
-                    {
-                        Monitor.Exit(_latestFrameLock);
-                    }
-                }
-                else
-                {
-                    Logger.Log("[WARN] Could not acquire latest frame lock during stop");
+                    _latestFrame = null;
+                    _hasNewFrame = false;
                 }
 
                 _useExternalFrames = false;
+
+                // Release frame pool
+                foreach (var frame in _outputFramePool)
+                {
+                    try
+                    {
+                        Marshal.ReleaseComObject(frame);
+                    }
+                    catch { }
+                }
+                _outputFramePool.Clear();
 
                 Logger.Log("[INFO] DeckLink output stopped successfully");
             }
@@ -546,6 +540,9 @@ namespace RvmDecklink
             }
         }
 
+        // Pre-allocated buffer for frame output
+        private byte[]? _outputFrameBuffer;
+
         /// <summary>
         /// Get the latest frame for output (called from ScheduledFrameCompleted callback)
         /// Returns null if no new frame is available
@@ -554,22 +551,22 @@ namespace RvmDecklink
         {
             lock (_latestFrameLock)
             {
-                if (_latestFrame != null && _hasNewFrame)
+                if (_latestFrame == null) return null;
+
+                // Allocate output buffer once
+                if (_outputFrameBuffer == null || _outputFrameBuffer.Length != _latestFrame.Length)
+                {
+                    _outputFrameBuffer = new byte[_latestFrame.Length];
+                }
+
+                if (_hasNewFrame)
                 {
                     _hasNewFrame = false;
-                    // Return a copy to avoid race conditions
-                    var copy = new byte[_latestFrame.Length];
-                    Buffer.BlockCopy(_latestFrame, 0, copy, 0, _latestFrame.Length);
-                    return copy;
                 }
-                else if (_latestFrame != null)
-                {
-                    // No new frame, but return the last frame (repeat frame)
-                    var copy = new byte[_latestFrame.Length];
-                    Buffer.BlockCopy(_latestFrame, 0, copy, 0, _latestFrame.Length);
-                    return copy;
-                }
-                return null;
+
+                // Copy to pre-allocated buffer
+                Buffer.BlockCopy(_latestFrame, 0, _outputFrameBuffer, 0, _latestFrame.Length);
+                return _outputFrameBuffer;
             }
         }
 
@@ -1296,18 +1293,11 @@ namespace RvmDecklink
 
             Logger.Log("[DISPOSE] DeckLinkWrapper.Dispose() called");
 
+            // Stop input first
             StopInput();
 
-            // Stop output timer first (synchronous)
-            if (_outputTimer != null)
-            {
-                _outputTimer.Stop();
-                _outputTimer.Tick -= OutputTimer_Tick;
-                _outputTimer = null;
-            }
-
-            // Set flag to stop callbacks
-            IsOutputRunning = false;
+            // Stop output properly (this handles timer, callbacks, etc.)
+            StopOutput();
 
             // Free silent audio buffer
             if (_silentAudioBuffer != IntPtr.Zero)
@@ -1316,17 +1306,38 @@ namespace RvmDecklink
                 _silentAudioBuffer = IntPtr.Zero;
             }
 
-            // Skip DeckLink COM calls entirely - they can deadlock
-            // The StopOutput BeginInvoke will handle cleanup asynchronously
-            // We just release the COM references here
+            // Brief wait for any pending operations
+            Thread.Sleep(20);
 
-            if (_output != null && _deckLinkOutput != _deckLinkInput)
+            // Release COM objects in reverse order of creation
+            if (_videoConversion != null)
+            {
+                try { Marshal.ReleaseComObject(_videoConversion); } catch { }
+                _videoConversion = null;
+            }
+
+            if (_output != null)
             {
                 try { Marshal.ReleaseComObject(_output); } catch { }
+                _output = null;
             }
+
             if (_input != null)
             {
                 try { Marshal.ReleaseComObject(_input); } catch { }
+                _input = null;
+            }
+
+            if (_deckLinkOutput != null && _deckLinkOutput != _deckLinkInput)
+            {
+                try { Marshal.ReleaseComObject(_deckLinkOutput); } catch { }
+                _deckLinkOutput = null;
+            }
+
+            if (_deckLinkInput != null)
+            {
+                try { Marshal.ReleaseComObject(_deckLinkInput); } catch { }
+                _deckLinkInput = null;
             }
 
             Logger.Log("[DISPOSE] DeckLinkWrapper.Dispose() completed");
