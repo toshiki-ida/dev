@@ -21,3 +21,10 @@ trt_cache/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Publish output
+publish/
+
+# Large DLL folders (download separately)
+cuda_dlls/
+tensorrt_dlls/

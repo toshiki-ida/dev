@@ -13,6 +13,8 @@ namespace RvmDecklink
     /// </summary>
     public class TensorRTInference : IDisposable
     {
+        // Use Logger for file logging
+        private static void Log(string message) => Logger.Log(message);
         private InferenceSession? _session;
         private readonly string _modelPath;
         private readonly string _cacheDir;
@@ -50,15 +52,25 @@ namespace RvmDecklink
         {
             try
             {
+                Log($"[INFO] TensorRT Initialize() starting...");
+                Log($"[INFO] Model path: {_modelPath}");
+                Log($"[INFO] Cache directory: {_cacheDir}");
+
+                // Check if model exists
                 if (!File.Exists(_modelPath))
                 {
-                    Console.WriteLine($"[ERROR] Model not found: {_modelPath}");
+                    Log($"[ERROR] Model not found: {_modelPath}");
+                    Log($"[ERROR] Current directory: {Environment.CurrentDirectory}");
+                    Log($"[ERROR] App base directory: {AppDomain.CurrentDomain.BaseDirectory}");
                     return false;
                 }
 
+                var modelFileInfo = new FileInfo(_modelPath);
+                Log($"[INFO] Model file size: {modelFileInfo.Length / 1024.0 / 1024.0:F2} MB");
+
                 // Create cache directory
                 Directory.CreateDirectory(_cacheDir);
-                Console.WriteLine($"[INFO] TensorRT cache directory: {_cacheDir}");
+                Log($"[INFO] TensorRT cache directory created/verified: {_cacheDir}");
 
                 // Configure TensorRT Execution Provider
                 var sessionOptions = new SessionOptions();
@@ -77,24 +89,45 @@ namespace RvmDecklink
                 };
 
                 // Add TensorRT provider (falls back to CUDA if TensorRT fails)
+                bool tensorrtConfigured = false;
                 try
                 {
+                    Log("[INFO] Attempting to configure TensorRT Execution Provider...");
                     // TensorRT provider with options
                     var trtProviderOptions = new OrtTensorRTProviderOptions();
                     trtProviderOptions.UpdateOptions(tensorrtOptions);
                     sessionOptions.AppendExecutionProvider_Tensorrt(trtProviderOptions);
-                    Console.WriteLine("[INFO] TensorRT Execution Provider configured");
+                    Log("[INFO] TensorRT Execution Provider configured successfully");
+                    tensorrtConfigured = true;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[WARNING] TensorRT EP not available: {ex.Message}");
-                    Console.WriteLine("[INFO] Falling back to CUDA Execution Provider");
+                    Log($"[WARNING] TensorRT EP not available: {ex.Message}");
+                    if (ex.InnerException != null)
+                    {
+                        Log($"[WARNING] Inner exception: {ex.InnerException.Message}");
+                    }
+                    Log("[INFO] Will fall back to CUDA Execution Provider");
                 }
 
                 // Add CUDA as fallback
-                sessionOptions.AppendExecutionProvider_CUDA();
+                try
+                {
+                    Log("[INFO] Configuring CUDA Execution Provider...");
+                    sessionOptions.AppendExecutionProvider_CUDA();
+                    Log("[INFO] CUDA Execution Provider configured successfully");
+                }
+                catch (Exception ex)
+                {
+                    Log($"[WARNING] CUDA EP configuration failed: {ex.Message}");
+                    if (ex.InnerException != null)
+                    {
+                        Log($"[WARNING] Inner exception: {ex.InnerException.Message}");
+                    }
+                }
 
                 // Add CPU as final fallback
+                Log("[INFO] Adding CPU Execution Provider as final fallback");
                 sessionOptions.AppendExecutionProvider_CPU(0);
 
                 // Performance optimizations
@@ -109,12 +142,12 @@ namespace RvmDecklink
                 bool hasCachedEngine = Directory.GetFiles(_cacheDir, "*.engine").Length > 0;
                 if (hasCachedEngine)
                 {
-                    Console.WriteLine("[INFO] Found cached TensorRT engine - fast startup expected");
+                    Log("[INFO] Found cached TensorRT engine - fast startup expected");
                 }
                 else
                 {
-                    Console.WriteLine("[INFO] No cached engine found - first run will compile TensorRT engine");
-                    Console.WriteLine("[INFO] This may take 5-10 minutes. Please wait...");
+                    Log("[INFO] No cached engine found - first run will compile TensorRT engine");
+                    Log("[INFO] This may take 5-10 minutes. Please wait...");
                 }
 
                 // Create session (this triggers TensorRT compilation on first run)
@@ -122,23 +155,29 @@ namespace RvmDecklink
                 _session = new InferenceSession(_modelPath, sessionOptions);
                 var loadTime = (DateTime.Now - startTime).TotalSeconds;
 
-                Console.WriteLine($"[INFO] Model loaded in {loadTime:F2} seconds");
+                Log($"[INFO] Model loaded in {loadTime:F2} seconds");
 
                 // Log session info
-                Console.WriteLine($"[INFO] Input: {_session.InputNames[0]}");
-                Console.WriteLine($"[INFO] Output: {_session.OutputNames[0]}");
+                Log($"[INFO] Input: {_session.InputNames[0]}");
+                Log($"[INFO] Output: {_session.OutputNames[0]}");
 
                 // Warmup run
-                Console.WriteLine("[INFO] Running warmup inference...");
+                Log("[INFO] Running warmup inference...");
                 WarmUp();
-                Console.WriteLine("[INFO] TensorRT inference engine ready");
+                Log("[INFO] TensorRT inference engine ready");
 
                 return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] Failed to initialize TensorRT: {ex.Message}");
-                Console.WriteLine(ex.StackTrace);
+                Log($"[ERROR] Failed to initialize TensorRT: {ex.Message}");
+                Log($"[ERROR] Exception type: {ex.GetType().FullName}");
+                if (ex.InnerException != null)
+                {
+                    Log($"[ERROR] Inner exception: {ex.InnerException.Message}");
+                    Log($"[ERROR] Inner exception type: {ex.InnerException.GetType().FullName}");
+                }
+                Log($"[ERROR] Stack trace: {ex.StackTrace}");
                 return false;
             }
         }
@@ -148,7 +187,7 @@ namespace RvmDecklink
         /// </summary>
         private void WarmUp()
         {
-            Console.WriteLine("[INFO] Creating warmup tensor...");
+            Log("[INFO] Creating warmup tensor...");
             var dummyInput = new float[1 * 3 * _height * _width];
             var tensor = new DenseTensor<float>(dummyInput, new[] { 1, 3, _height, _width });
 
@@ -157,18 +196,18 @@ namespace RvmDecklink
                 NamedOnnxValue.CreateFromTensor(InputName, tensor)
             };
 
-            Console.WriteLine("[INFO] Starting warmup inference run...");
+            Log("[INFO] Starting warmup inference run...");
             var startTime = DateTime.Now;
             try
             {
                 using var results = _session!.Run(inputs);
                 LastInferenceTimeMs = (DateTime.Now - startTime).TotalMilliseconds;
-                Console.WriteLine($"[INFO] Warmup inference completed: {LastInferenceTimeMs:F2}ms");
+                Log($"[INFO] Warmup inference completed: {LastInferenceTimeMs:F2}ms");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] Warmup inference failed: {ex.Message}");
-                Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+                Log($"[ERROR] Warmup inference failed: {ex.Message}");
+                Log($"[ERROR] Stack trace: {ex.StackTrace}");
                 throw;
             }
         }
@@ -208,7 +247,7 @@ namespace RvmDecklink
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] Inference failed: {ex.Message}");
+                Log($"[ERROR] Inference failed: {ex.Message}");
                 return null;
             }
         }

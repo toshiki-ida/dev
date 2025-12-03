@@ -16,6 +16,7 @@ namespace RvmDecklink
         private IDeckLink? _deckLinkOutput;
         private IDeckLinkInput? _input;
         private IDeckLinkOutput? _output;
+        private IDeckLinkConfiguration? _inputConfiguration;
         private IDeckLinkVideoConversion? _videoConversion;
 
         // Dispatcher for COM threading (must access _output from main thread)
@@ -101,13 +102,47 @@ namespace RvmDecklink
                     if (device == null) break;
 
                     device.GetDisplayName(out string displayName);
-                    Console.WriteLine($"[INFO] Found DeckLink device {deviceCount}: {displayName}");
+                    Logger.Log($"[INFO] Found DeckLink device {deviceCount}: {displayName}");
 
                     if (deviceCount == inputDeviceIndex)
                     {
                         _deckLinkInput = device;
-                        _input = device as IDeckLinkInput;
                         InputDeviceName = displayName;
+
+                        // Get IDeckLinkInput via QueryInterface (for SDK version compatibility)
+                        IntPtr pUnkInput = Marshal.GetIUnknownForObject(device);
+                        try
+                        {
+                            Guid iidInput = typeof(IDeckLinkInput).GUID;
+                            int hrInput = Marshal.QueryInterface(pUnkInput, ref iidInput, out IntPtr pInput);
+                            if (hrInput == 0 && pInput != IntPtr.Zero)
+                            {
+                                _input = (IDeckLinkInput)Marshal.GetObjectForIUnknown(pInput);
+                                Marshal.Release(pInput);
+                                Logger.Log($"[INFO] IDeckLinkInput obtained via QueryInterface");
+                            }
+                            else
+                            {
+                                Logger.Log($"[WARN] QueryInterface for IDeckLinkInput failed: hr=0x{hrInput:X8}");
+                            }
+
+                            Guid iidConfig = typeof(IDeckLinkConfiguration).GUID;
+                            int hrConfig = Marshal.QueryInterface(pUnkInput, ref iidConfig, out IntPtr pConfig);
+                            if (hrConfig == 0 && pConfig != IntPtr.Zero)
+                            {
+                                _inputConfiguration = (IDeckLinkConfiguration)Marshal.GetObjectForIUnknown(pConfig);
+                                Marshal.Release(pConfig);
+                                Logger.Log($"[INFO] IDeckLinkConfiguration obtained via QueryInterface");
+                            }
+                            else
+                            {
+                                Logger.Log($"[WARN] QueryInterface for IDeckLinkConfiguration failed: hr=0x{hrConfig:X8}");
+                            }
+                        }
+                        finally
+                        {
+                            Marshal.Release(pUnkInput);
+                        }
                     }
 
                     if (deviceCount == outputDeviceIndex)
@@ -132,11 +167,11 @@ namespace RvmDecklink
                         {
                             _output = (IDeckLinkOutput)Marshal.GetObjectForIUnknown(pOutput);
                             Marshal.Release(pOutput);
-                            Console.WriteLine($"[INFO] IDeckLinkOutput obtained via QueryInterface");
+                            Logger.Log($"[INFO] IDeckLinkOutput obtained via QueryInterface");
                         }
                         else
                         {
-                            Console.WriteLine($"[WARN] QueryInterface for IDeckLinkOutput failed: hr=0x{hr:X8}");
+                            Logger.Log($"[WARN] QueryInterface for IDeckLinkOutput failed: hr=0x{hr:X8}");
                         }
                     }
 
@@ -147,12 +182,13 @@ namespace RvmDecklink
 
                 if (_deckLinkInput == null)
                 {
-                    Console.WriteLine("[ERROR] No DeckLink device found");
+                    Logger.Log("[ERROR] No DeckLink device found");
                     return false;
                 }
 
-                Logger.Log($"[INFO] Initialize complete: Input={InputDeviceName}, Output={OutputDeviceName}");
+                Logger.Log($"[INFO] Initialize complete: Input={InputDeviceName}, Output={OutputDeviceName ?? "(none)"}");
                 Logger.Log($"[INFO] _input is null: {_input == null}, _output is null: {_output == null}");
+                Logger.Log($"[INFO] outputDeviceIndex was: {outputDeviceIndex}");
 
                 // Create video conversion for frame copying
                 _videoConversion = new CDeckLinkVideoConversion() as IDeckLinkVideoConversion;
@@ -162,13 +198,13 @@ namespace RvmDecklink
             }
             catch (COMException ex)
             {
-                Console.WriteLine($"[ERROR] DeckLink COM error: 0x{ex.HResult:X8} - {ex.Message}");
-                Console.WriteLine("[INFO] Please ensure DeckLink drivers are installed");
+                Logger.Log($"[ERROR] DeckLink COM error: 0x{ex.HResult:X8} - {ex.Message}");
+                Logger.Log("[INFO] Please ensure DeckLink drivers are installed");
                 return false;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] DeckLink initialization failed: {ex.Message}");
+                Logger.Log($"[ERROR] DeckLink initialization failed: {ex.Message}");
                 return false;
             }
         }
@@ -182,6 +218,22 @@ namespace RvmDecklink
 
             try
             {
+                // Explicitly set SDI input connection (DeckLink 8K Pro requires this)
+                if (_inputConfiguration != null)
+                {
+                    _inputConfiguration.GetInt(_BMDDeckLinkConfigurationID.bmdDeckLinkConfigVideoInputConnection, out long currentConn);
+                    Logger.Log($"[INFO] Current video input connection: {(_BMDVideoConnection)currentConn}");
+
+                    _inputConfiguration.SetInt(_BMDDeckLinkConfigurationID.bmdDeckLinkConfigVideoInputConnection, (long)_BMDVideoConnection.bmdVideoConnectionSDI);
+
+                    _inputConfiguration.GetInt(_BMDDeckLinkConfigurationID.bmdDeckLinkConfigVideoInputConnection, out long newConn);
+                    Logger.Log($"[INFO] Set video input connection to SDI: {(_BMDVideoConnection)newConn}");
+                }
+                else
+                {
+                    Logger.Log("[WARN] _inputConfiguration is null, cannot set SDI input connection");
+                }
+
                 // Set screen preview callback if provided
                 if (screenPreviewCallback != null)
                 {
@@ -195,22 +247,22 @@ namespace RvmDecklink
                     _input.SetCallback(this);
                 }
 
-                // Enable video input - use native YUV422 format, no format detection
+                // Enable video input - use native YUV422 format, enable format detection for DeckLink 8K Pro
                 _input.EnableVideoInput(
                     _BMDDisplayMode.bmdModeHD1080i5994,
                     _BMDPixelFormat.bmdFormat8BitYUV,
-                    _BMDVideoInputFlags.bmdVideoInputFlagDefault);
+                    _BMDVideoInputFlags.bmdVideoInputEnableFormatDetection);
 
                 // Start streams
                 _input.StartStreams();
 
                 IsInputRunning = true;
-                Console.WriteLine("[INFO] DeckLink input started (1080i59.94 YUV422)");
+                Logger.Log("[INFO] DeckLink input started (1080i59.94 YUV422 with format detection, SDI input)");
                 return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] Failed to start input: {ex.Message}");
+                Logger.Log($"[ERROR] Failed to start input: {ex.Message}");
                 return false;
             }
         }
