@@ -138,7 +138,9 @@
                         <Button x:Name="StopBtn" Content="Stop Processing" Click="Stop_Click"
                                 Background="#F44336" IsEnabled="False" Margin="0,0,0,10"/>
                         <Button x:Name="TestSdiBtn" Content="Test SDI Output" Click="TestSdi_Click"
-                                Background="#FF9800" Margin="0,0,0,20"/>
+                                Background="#FF9800" Margin="0,0,0,10"/>
+                        <Button x:Name="SettingsBtn" Content="Settings" Click="Settings_Click"
+                                Background="#9C27B0" Margin="0,0,0,20"/>
 
                         <Separator Background="#3C3C3C" Margin="0,0,0,20"/>
 

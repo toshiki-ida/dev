@@ -33,6 +33,10 @@ namespace RvmDecklink
         // WriteableBitmap for preview
         private WriteableBitmap? _previewBitmap;
 
+        // RVM Settings
+        public RvmSettings Settings { get; } = new RvmSettings();
+        private SettingsWindow? _settingsWindow;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -40,6 +44,9 @@ namespace RvmDecklink
             // Set model path
             var appDir = AppDomain.CurrentDomain.BaseDirectory;
             _modelPath = Path.Combine(appDir, "Models", "rvm_mobilenetv3_stateless.onnx");
+
+            // Load saved settings
+            Settings.Load();
 
             // Initialize
             Loaded += MainWindow_Loaded;
@@ -369,7 +376,7 @@ namespace RvmDecklink
                 }
 
                 // Create pipeline processor (enable output if SDI output started successfully)
-                _pipeline = new PipelineProcessor(_inference, _deckLink, enableOutput: _deckLink.IsOutputRunning);
+                _pipeline = new PipelineProcessor(_inference, _deckLink, Settings, enableOutput: _deckLink.IsOutputRunning);
                 Logger.Log($"[MAIN] PipelineProcessor created with enableOutput={_deckLink.IsOutputRunning}");
                 _pipeline.AlphaOnly = true;
                 _pipeline.OnProcessedFrame += OnProcessedFrameForPreview;
@@ -520,6 +527,22 @@ namespace RvmDecklink
             {
                 _testDeckLink.SendFrame(_testFrame);
             }
+        }
+
+        private void Settings_Click(object sender, RoutedEventArgs e)
+        {
+            // Open settings window (reuse if already open)
+            if (_settingsWindow != null && _settingsWindow.IsLoaded)
+            {
+                _settingsWindow.Activate();
+                return;
+            }
+
+            _settingsWindow = new SettingsWindow(Settings)
+            {
+                Owner = this
+            };
+            _settingsWindow.Show();
         }
 
         // Processed frame preview (alpha mask - white silhouette on black)

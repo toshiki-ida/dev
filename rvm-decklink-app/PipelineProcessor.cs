@@ -17,6 +17,7 @@ namespace RvmDecklink
         private readonly TensorRTInference _inference;
         private readonly DeckLinkWrapper _deckLink;
         private readonly bool _enableOutput;
+        private readonly RvmSettings _settings;
 
         // Pipeline queues
         private BlockingCollection<FrameData> _inferenceQueue;
@@ -44,10 +45,14 @@ namespace RvmDecklink
         // Pre-allocated buffers to reduce GC pressure
         private byte[]? _bgraBuffer;
 
-        public PipelineProcessor(TensorRTInference inference, DeckLinkWrapper deckLink, bool enableOutput = true)
+        // Temporal smoothing buffer
+        private float[]? _prevAlpha;
+
+        public PipelineProcessor(TensorRTInference inference, DeckLinkWrapper deckLink, RvmSettings settings, bool enableOutput = true)
         {
             _inference = inference;
             _deckLink = deckLink;
+            _settings = settings;
             _enableOutput = enableOutput;
 
             // Bounded queues to prevent memory buildup (drop frames if too slow)
@@ -245,7 +250,7 @@ namespace RvmDecklink
         }
 
         /// <summary>
-        /// Stage 2: Post-processing
+        /// Stage 2: Post-processing with RVM settings applied
         /// </summary>
         private void PostprocessWorker()
         {
@@ -260,16 +265,19 @@ namespace RvmDecklink
                 {
                     var sw = Stopwatch.StartNew();
 
+                    // Apply RVM settings to alpha
+                    var processedAlpha = ApplyAlphaSettings(frame.Alpha);
+
                     byte[] output;
                     if (AlphaOnly)
                     {
                         // Alpha channel only (black + alpha)
-                        output = _inference.CreateAlphaOnlyOutput(frame.Alpha);
+                        output = CreateAlphaOnlyOutputWithSettings(processedAlpha);
                     }
                     else
                     {
                         // Full BGRA with alpha
-                        output = _inference.ApplyAlpha(frame.OriginalData, frame.Alpha);
+                        output = _inference.ApplyAlpha(frame.OriginalData, processedAlpha);
                     }
 
                     sw.Stop();
@@ -308,6 +316,213 @@ namespace RvmDecklink
             }
 
             Console.WriteLine("[PIPELINE] Postprocess worker stopped");
+        }
+
+        /// <summary>
+        /// Apply RVM settings to alpha values
+        /// </summary>
+        private float[] ApplyAlphaSettings(float[] alpha)
+        {
+            int pixelCount = alpha.Length;
+            var result = new float[pixelCount];
+
+            // Read settings (thread-safe read of current values)
+            float minClamp = _settings.MinAlphaClamp;
+            float maxClamp = _settings.MaxAlphaClamp;
+            float gamma = _settings.GammaCorrection;
+            float contrast = _settings.AlphaContrast;
+            bool useSoftAlpha = _settings.UseSoftAlpha;
+            float threshold = _settings.AlphaThreshold;
+            bool temporalSmoothing = _settings.TemporalSmoothing;
+            float smoothingStrength = _settings.SmoothingStrength;
+
+            for (int i = 0; i < pixelCount; i++)
+            {
+                float a = alpha[i];
+
+                // Min/Max clamp with re-normalization
+                if (minClamp > 0f || maxClamp < 1f)
+                {
+                    a = Math.Clamp(a, minClamp, maxClamp);
+                    a = (a - minClamp) / (maxClamp - minClamp);
+                }
+
+                // Gamma correction
+                if (gamma != 1.0f)
+                {
+                    a = MathF.Pow(a, gamma);
+                }
+
+                // Contrast (for soft alpha mode)
+                if (useSoftAlpha && contrast != 1.0f)
+                {
+                    a = Math.Clamp(a * contrast, 0f, 1f);
+                }
+
+                // Binary threshold (for hard edge mode)
+                if (!useSoftAlpha)
+                {
+                    a = a > threshold ? 1f : 0f;
+                }
+
+                result[i] = a;
+            }
+
+            // Temporal smoothing (EMA)
+            if (temporalSmoothing && _prevAlpha != null && _prevAlpha.Length == pixelCount)
+            {
+                for (int i = 0; i < pixelCount; i++)
+                {
+                    result[i] = smoothingStrength * result[i] + (1f - smoothingStrength) * _prevAlpha[i];
+                }
+            }
+
+            // Store for next frame
+            _prevAlpha = (float[])result.Clone();
+
+            return result;
+        }
+
+        /// <summary>
+        /// Create alpha-only output with morphological and edge processing
+        /// </summary>
+        private byte[] CreateAlphaOnlyOutputWithSettings(float[] alpha)
+        {
+            const int width = 1920;
+            const int height = 1080;
+            int pixelCount = width * height;
+
+            // Convert float to byte
+            var alphaBytes = new byte[pixelCount];
+            for (int i = 0; i < pixelCount; i++)
+            {
+                alphaBytes[i] = (byte)(Math.Clamp(alpha[i], 0f, 1f) * 255f);
+            }
+
+            // Apply morphological operations using OpenCV-style processing
+            // (simplified without actual OpenCV dependency)
+            int erosion = _settings.ErosionSize;
+            int dilation = _settings.DilationSize;
+            int feather = _settings.FeatherAmount;
+            bool edgeRefine = _settings.EdgeRefinement;
+            int edgeKernel = _settings.EdgeKernelSize;
+
+            // Apply erosion (shrink)
+            if (erosion > 0)
+            {
+                alphaBytes = ApplyMorphology(alphaBytes, width, height, erosion, false);
+            }
+
+            // Apply dilation (expand)
+            if (dilation > 0)
+            {
+                alphaBytes = ApplyMorphology(alphaBytes, width, height, dilation, true);
+            }
+
+            // Apply edge refinement (blur)
+            if (edgeRefine && edgeKernel > 1)
+            {
+                alphaBytes = ApplyGaussianBlur(alphaBytes, width, height, edgeKernel);
+            }
+
+            // Apply feathering
+            if (feather > 0)
+            {
+                int featherKernel = feather * 2 + 1;
+                alphaBytes = ApplyGaussianBlur(alphaBytes, width, height, featherKernel);
+            }
+
+            // Create BGRA output
+            var output = new byte[pixelCount * 4];
+            for (int i = 0; i < pixelCount; i++)
+            {
+                int idx = i * 4;
+                byte a = alphaBytes[i];
+                output[idx] = a;     // B
+                output[idx + 1] = a; // G
+                output[idx + 2] = a; // R
+                output[idx + 3] = 255; // A
+            }
+
+            return output;
+        }
+
+        /// <summary>
+        /// Simple box blur (approximation of Gaussian blur)
+        /// </summary>
+        private static byte[] ApplyGaussianBlur(byte[] data, int width, int height, int kernelSize)
+        {
+            if (kernelSize < 3) return data;
+            int radius = kernelSize / 2;
+
+            var result = new byte[data.Length];
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int sum = 0;
+                    int count = 0;
+
+                    for (int ky = -radius; ky <= radius; ky++)
+                    {
+                        for (int kx = -radius; kx <= radius; kx++)
+                        {
+                            int nx = x + kx;
+                            int ny = y + ky;
+
+                            if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                            {
+                                sum += data[ny * width + nx];
+                                count++;
+                            }
+                        }
+                    }
+
+                    result[y * width + x] = (byte)(sum / count);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Simple morphology (erosion/dilation)
+        /// </summary>
+        private static byte[] ApplyMorphology(byte[] data, int width, int height, int size, bool dilate)
+        {
+            int radius = size;
+            var result = new byte[data.Length];
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    byte val = dilate ? (byte)0 : (byte)255;
+
+                    for (int ky = -radius; ky <= radius; ky++)
+                    {
+                        for (int kx = -radius; kx <= radius; kx++)
+                        {
+                            int nx = x + kx;
+                            int ny = y + ky;
+
+                            if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                            {
+                                byte sample = data[ny * width + nx];
+                                if (dilate)
+                                    val = Math.Max(val, sample);
+                                else
+                                    val = Math.Min(val, sample);
+                            }
+                        }
+                    }
+
+                    result[y * width + x] = val;
+                }
+            }
+
+            return result;
         }
 
         public void Dispose()
