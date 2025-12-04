@@ -1,0 +1,164 @@
+// Prisma schema for Camera Cut Editor
+// MongoDB database
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// User model for multi-user collaboration
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  name      String
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  projects       Project[]       @relation("ProjectOwner")
+  collaborations ProjectMember[]
+  cameraEdits    CameraEdit[]
+}
+
+// Project model - contains 3D scene and cameras
+model Project {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Owner
+  ownerId String @db.ObjectId
+  owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id])
+
+  // Relations
+  members  ProjectMember[]
+  models   Model3D[]
+  cameras  Camera[]
+  layouts  Layout[]
+
+  @@index([ownerId])
+}
+
+// Project membership for collaboration
+model ProjectMember {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  role      String   @default("editor") // "owner", "editor", "viewer"
+  joinedAt  DateTime @default(now())
+
+  projectId String  @db.ObjectId
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, userId])
+}
+
+// 3D Model reference (PLY, GLTF, SPZ, etc.)
+model Model3D {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  fileName  String
+  fileType  String   // "ply", "splat", "spz", "ksplat", "gltf", "glb", etc.
+  fileSize  Int
+  filePath  String   // Server storage path
+  createdAt DateTime @default(now())
+
+  // Transform
+  positionX Float @default(0)
+  positionY Float @default(0)
+  positionZ Float @default(0)
+  rotationX Float @default(0)
+  rotationY Float @default(0)
+  rotationZ Float @default(0)
+  scaleX    Float @default(1)
+  scaleY    Float @default(1)
+  scaleZ    Float @default(1)
+
+  visible Boolean @default(true)
+
+  projectId String  @db.ObjectId
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// Camera with Pan/Tilt/Roll controls
+model Camera {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Position
+  positionX Float @default(0)
+  positionY Float @default(1.6)
+  positionZ Float @default(5)
+
+  // Pan/Tilt/Roll (degrees)
+  pan  Float @default(0)
+  tilt Float @default(0)
+  roll Float @default(0)
+
+  // Lens settings
+  fov        Float @default(50)
+  focalLength Float @default(35)
+  near       Float @default(0.1)
+  far        Float @default(1000)
+
+  // Status
+  isLive Boolean @default(false) // Currently on PGM
+
+  projectId String  @db.ObjectId
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Relation to edits history
+  edits CameraEdit[]
+
+  @@index([projectId])
+}
+
+// Camera edit history for real-time sync
+model CameraEdit {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  timestamp DateTime @default(now())
+
+  // What changed
+  field    String // "position", "rotation", "fov", etc.
+  oldValue String // JSON string
+  newValue String // JSON string
+
+  cameraId String @db.ObjectId
+  camera   Camera @relation(fields: [cameraId], references: [id], onDelete: Cascade)
+
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([cameraId])
+  @@index([userId])
+}
+
+// Layout configuration for multi-view display
+model Layout {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Layout configuration (JSON)
+  config String // JSON: { rows: number, cols: number, cells: [{ cameraId, row, col, rowSpan, colSpan }] }
+
+  projectId String  @db.ObjectId
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
